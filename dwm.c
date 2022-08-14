@@ -252,6 +252,8 @@ static Monitor *systraytomon(Monitor *m);
 static void tag(const Arg *arg);
 static void tagmon(const Arg *arg);
 static void tile(Monitor *m);
+static void grid(Monitor *m, uint gappo, uint gappi);
+static void magicgrid(Monitor *m);
 static void togglebar(const Arg *arg);
 static void togglefloating(const Arg *arg);
 static void toggletag(const Arg *arg);
@@ -1188,12 +1190,14 @@ manage(Window w, XWindowAttributes *wa)
 		applyrules(c);
 	}
 
-	if (c->x + WIDTH(c) > c->mon->wx + c->mon->ww)
-		c->x = c->mon->wx + c->mon->ww - WIDTH(c);
-	if (c->y + HEIGHT(c) > c->mon->wy + c->mon->wh)
-		c->y = c->mon->wy + c->mon->wh - HEIGHT(c);
-	c->x = MAX(c->x, c->mon->wx);
-	c->y = MAX(c->y, c->mon->wy);
+	if (c->x + WIDTH(c) > c->mon->mx + c->mon->mw)
+		c->x = c->mon->mx + c->mon->mw - WIDTH(c);
+	if (c->y + HEIGHT(c) > c->mon->my + c->mon->mh)
+		c->y = c->mon->my + c->mon->mh - HEIGHT(c);
+	c->x = MAX(c->x, c->mon->mx);
+	/* only fix client y-offset, if the client center might cover the bar */
+	c->y = MAX(c->y, ((c->mon->by == c->mon->my) && (c->x + (c->w / 2) >= c->mon->wx)
+		&& (c->x + (c->w / 2) < c->mon->wx + c->mon->ww)) ? bh : c->mon->my);
 	c->bw = borderpx;
 
 	wc.border_width = c->bw;
@@ -1239,7 +1243,7 @@ maprequest(XEvent *e)
 	static XWindowAttributes wa;
 	XMapRequestEvent *ev = &e->xmaprequest;
 
-        Client *i;
+	Client *i;
         if ((i = wintosystrayicon(ev->window))) {
                 sendevent(i->win, netatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_WINDOW_ACTIVATE, 0, systray->win, XEMBED_EMBEDDED_VERSION);
                 resizebarwin(selmon);
@@ -2098,6 +2102,79 @@ tile(Monitor *m)
 			if (ty + HEIGHT(c) + m->gappih*ie < m->wh)
 				ty += HEIGHT(c) + m->gappih*ie;
 		}
+}
+
+void
+magicgrid(Monitor *m)
+{
+	grid(m, (gappoh+gappov)/2, (gappih+gappiv)/2);
+}
+
+void
+grid(Monitor *m, uint gappo , uint gappi)
+{
+	unsigned int i, n;
+	unsigned int cx, cy, cw, ch;
+	unsigned int dx;
+	unsigned int cols, rows, overcols;
+	Client *c;
+
+	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+	if (n == 0) return;
+	if (n == 1) {
+	    c = nexttiled(m->clients);
+	    cw = (m->ww - 2 * gappo) * 0.6;
+	    ch = (m->wh - 2 * gappo) * 0.6;
+	    resize(c,
+		m->mx + (m->mw - cw) / 2 + gappo,
+		m->my + (m->mh - ch) / 2 + gappo,
+		cw - 2 * c->bw,
+		ch - 2 * c->bw,
+		0);
+	    return;
+	}
+	if (n == 2) {
+	    c = nexttiled(m->clients);
+	    cw = (m->ww - 2 * gappo - gappi) / 2;
+	    ch = (m->wh - 2 * gappo) * 0.6;
+	    resize(c,
+		m->mx + gappo,
+		m->my + (m->mh - ch) / 2 + gappo,
+		cw - 2 * c->bw,
+		ch - 2 * c->bw,
+		0);
+	    resize(nexttiled(c->next),
+		m->mx + cw + gappo + gappi,
+		m->my + (m->mh - ch) / 2 + gappo,
+		cw - 2 * c->bw,
+		ch - 2 * c->bw,
+		0);
+	    return;
+	}
+
+	for (cols = 0; cols <= n / 2; cols++)
+	    if (cols * cols >= n)
+		break;
+	rows = (cols && (cols - 1) * cols >= n) ? cols - 1 : cols;
+	    ch = (m->wh - 2 * gappo - (rows - 1) * gappi) / rows;
+	    cw = (m->ww - 2 * gappo - (cols - 1) * gappi) / cols;
+
+	overcols = n % cols;
+	if (overcols)
+	    dx = (m->ww - overcols * cw - (overcols - 1) * gappi) / 2 - gappo;
+	    for(i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
+	    cx = m->wx + (i % cols) * (cw + gappi);
+	    cy = m->wy + (i / cols) * (ch + gappi);
+	    if (overcols && i >= n - overcols) {
+		cx += dx;
+	    }
+	    resize(c,
+		cx + gappo,
+		cy + gappo,
+		cw - 2 * c->bw,
+		ch - 2 * c->bw,
+		0);
+	    }
 }
 
 void
